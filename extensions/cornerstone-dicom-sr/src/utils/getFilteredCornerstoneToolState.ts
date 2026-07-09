@@ -47,9 +47,23 @@ function getFilteredCornerstoneToolState(measurementData, additionalFindingTypes
       findingSites.push(...measurementDataI.findingSites);
     }
 
+    const frameNumber =
+      measurementDataI.frameNumber ??
+      annotation.data?.frameNumber ??
+      annotation.metadata?.frameNumber ??
+      annotation.metadata?.referencedFrameNumber;
+
     const measurement = Object.assign({}, annotation, {
       finding,
       findingSites,
+      data: {
+        ...annotation.data,
+        ...(frameNumber !== undefined && frameNumber !== null ? { frameNumber } : {}),
+      },
+      metadata: {
+        ...annotation.metadata,
+        ...(frameNumber !== undefined && frameNumber !== null ? { frameNumber } : {}),
+      },
     });
 
     toolData.push(measurement);

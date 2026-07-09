@@ -77,7 +77,9 @@ export default function hydrateStructuredReport(
   const sopInstanceUIDToImageId = {};
 
   displaySet.measurements.forEach(measurement => {
-    const { ReferencedSOPInstanceUID, imageId, frameNumber = 1 } = measurement;
+    const { ReferencedSOPInstanceUID, imageId } = measurement;
+    const imageInstance = imageId ? metaData.get('instance', imageId) : undefined;
+    const frameNumber = measurement.frameNumber ?? imageInstance?.frameNumber ?? 1;
     const key = `${ReferencedSOPInstanceUID}:${frameNumber}`;
 
     if (imageId && !sopInstanceUIDToImageId[key]) {
@@ -170,8 +172,7 @@ export default function hydrateStructuredReport(
     // dcmjs and Cornerstone3D has structural defect in supporting multi-frame
     // files, and looking up the imageId from sopInstanceUIDToImageId results
     // in the wrong value.
-    const frameNumber = (toolData.annotation.data && toolData.annotation.data.frameNumber) || 1;
-    const imageId = sopInstanceUIDToImageId[`${toolData.sopInstanceUid}:${frameNumber}`];
+    const imageId = getImageIdForToolData(toolData, sopInstanceUIDToImageId);
 
     if (!imageId) {
       return getReferenceData3D(toolData, servicesManager);
@@ -270,8 +271,7 @@ function getImageIds(hydratableMeasurementsInSR, sopInstanceUIDToImageId): strin
       // dcmjs and Cornerstone3D has structural defect in supporting multi-frame
       // files, and looking up the imageId from sopInstanceUIDToImageId results
       // in the wrong value.
-      const frameNumber = toolData.annotation.data?.frameNumber || 1;
-      const imageId = sopInstanceUIDToImageId[`${toolData.sopInstanceUid}:${frameNumber}`];
+      const imageId = getImageIdForToolData(toolData, sopInstanceUIDToImageId);
 
       if (imageId && !imageIds.includes(imageId)) {
         imageIds.push(imageId);
@@ -291,8 +291,7 @@ function getFrameOfReferenceUIDs(hydratableMeasurementsInSR, sopInstanceUIDToIma
   Object.keys(hydratableMeasurementsInSR).forEach(annotationType => {
     const toolDataForAnnotationType = hydratableMeasurementsInSR[annotationType];
     toolDataForAnnotationType.forEach(toolData => {
-      const frameNumber = toolData.annotation.data?.frameNumber || 1;
-      const imageId = sopInstanceUIDToImageId[`${toolData.sopInstanceUid}:${frameNumber}`];
+      const imageId = getImageIdForToolData(toolData, sopInstanceUIDToImageId);
 
       if (!imageId) {
         const { FrameOfReferenceUID } = toolData.annotation.metadata;
@@ -303,6 +302,31 @@ function getFrameOfReferenceUIDs(hydratableMeasurementsInSR, sopInstanceUIDToIma
     });
   });
   return frameOfReferenceUIDs;
+}
+
+function getImageIdForToolData(toolData, sopInstanceUIDToImageId): string | undefined {
+  const frameNumber = toolData.annotation.data?.frameNumber;
+
+  if (frameNumber !== undefined && frameNumber !== null) {
+    return sopInstanceUIDToImageId[`${toolData.sopInstanceUid}:${frameNumber}`];
+  }
+
+  const matchingKeys = Object.keys(sopInstanceUIDToImageId).filter(key =>
+    key.startsWith(`${toolData.sopInstanceUid}:`)
+  );
+
+  if (matchingKeys.length === 1) {
+    return sopInstanceUIDToImageId[matchingKeys[0]];
+  }
+
+  if (matchingKeys.length > 1) {
+    console.warn(
+      'Skipping SR measurement for multiframe image because ReferencedFrameNumber is missing.',
+      {
+        ReferencedSOPInstanceUID: toolData.sopInstanceUid,
+      }
+    );
+  }
 }
 
 /**

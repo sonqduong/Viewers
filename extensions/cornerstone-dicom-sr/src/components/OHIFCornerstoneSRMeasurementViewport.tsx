@@ -41,6 +41,9 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
   const setTrackingIdentifiers = useCallback(
     measurementSelected => {
       const { measurements } = srDisplaySet;
+      if (!measurements?.length) {
+        return;
+      }
 
       setTrackingUniqueIdentifiersForElement(
         element,
@@ -84,7 +87,10 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
         setReferencedDisplaySetMetadata(referencedDisplaySetMetadata);
 
         const { presentationIds } = viewportOptions;
-        const measurement = srDisplaySet.measurements[newMeasurementSelected];
+        const measurement = srDisplaySet.measurements?.[newMeasurementSelected];
+        if (!measurement) {
+          return;
+        }
         setPositionPresentation(presentationIds.positionPresentationId, {
           viewReference: measurement.viewReference || {
             referencedImageId: measurement.imageId,
@@ -236,7 +242,18 @@ async function _getViewportReferencedDisplaySetData(
   displaySetService
 ) {
   const { measurements } = displaySet;
-  const measurement = measurements[measurementSelected];
+  const measurement = measurements?.[measurementSelected];
+
+  if (!measurement) {
+    console.warn('No parsed measurement found for SR display set selection.', {
+      displaySetInstanceUID: displaySet.displaySetInstanceUID,
+      measurementSelected,
+      measurementCount: measurements?.length ?? 0,
+      seriesInstanceUID: displaySet.SeriesInstanceUID,
+      sopInstanceUID: displaySet.SOPInstanceUID,
+    });
+    return { referencedDisplaySetMetadata: null, referencedDisplaySet: null };
+  }
 
   const { displaySetInstanceUID } = measurement;
   if (!displaySet.keyImageDisplaySet) {

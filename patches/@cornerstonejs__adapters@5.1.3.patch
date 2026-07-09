@@ -1,0 +1,150 @@
+diff --git a/dist/esm/adapters/Cornerstone3D/MeasurementReport.d.ts b/dist/esm/adapters/Cornerstone3D/MeasurementReport.d.ts
+index f656492df2e677344237edcaf8068a90f6ad606e..691e5d6fe0b3554680b4406a95864468b0e64978 100644
+--- a/dist/esm/adapters/Cornerstone3D/MeasurementReport.d.ts
++++ b/dist/esm/adapters/Cornerstone3D/MeasurementReport.d.ts
+@@ -138,6 +138,11 @@ export default class MeasurementReport {
+             };
+         };
+     };
++    static getReferencedImageId({ sopInstanceUIDToImageIdMap, ReferencedSOPInstanceUID, ReferencedFrameNumber, }: {
++        sopInstanceUIDToImageIdMap: any;
++        ReferencedSOPInstanceUID: any;
++        ReferencedFrameNumber: any;
++    }): any;
+     static processSCOORD3DGroup({ SCOORD3DGroup, toolType, }: {
+         SCOORD3DGroup: any;
+         toolType: any;
+@@ -173,6 +178,11 @@ export default class MeasurementReport {
+         FrameOfReferenceUID: string;
+     };
+     static getSetupMeasurementData(MeasurementGroup: any, sopInstanceUIDToImageIdMap: any, metadata: any, toolType: any): SetupMeasurementData;
++    static getFrameNumberFromToolData({ toolData, toolTypes, metadataProvider, }: {
++        toolData: any;
++        toolTypes: any;
++        metadataProvider: any;
++    }): number | undefined;
+     static generateReferencedSOPSequence({ toolData, toolTypes, metadataProvider, imageId, sopInstanceUIDsToSeriesInstanceUIDMap, derivationSourceDatasets, }: {
+         toolData: any;
+         toolTypes: any;
+@@ -183,7 +193,7 @@ export default class MeasurementReport {
+     }): {
+         ReferencedSOPClassUID: any;
+         ReferencedSOPInstanceUID: any;
+-        ReferencedFrameNumber: any;
++        ReferencedFrameNumber?: any;
+     };
+     static getImageIdFromVolume({ toolData, toolTypes }: {
+         toolData: any;
+diff --git a/dist/esm/adapters/Cornerstone3D/MeasurementReport.js b/dist/esm/adapters/Cornerstone3D/MeasurementReport.js
+index 3ea858bf21033d76ae6d68f33776ebbeaedf027d..413ee987461311e34349ecde5d1d1dd2753ae508 100644
+--- a/dist/esm/adapters/Cornerstone3D/MeasurementReport.js
++++ b/dist/esm/adapters/Cornerstone3D/MeasurementReport.js
+@@ -106,9 +106,15 @@ class MeasurementReport {
+       metadata = _ref.metadata;
+     const ReferencedSOPSequence = SCOORDGroup.ContentSequence.ReferencedSOPSequence;
+     const ReferencedSOPInstanceUID = ReferencedSOPSequence.ReferencedSOPInstanceUID,
+-      _ReferencedSOPSequenc = ReferencedSOPSequence.ReferencedFrameNumber,
+-      ReferencedFrameNumber = _ReferencedSOPSequenc === void 0 ? 1 : _ReferencedSOPSequenc;
+-    const referencedImageId = sopInstanceUIDToImageIdMap["".concat(ReferencedSOPInstanceUID, ":").concat(ReferencedFrameNumber)];
++      ReferencedFrameNumber = ReferencedSOPSequence.ReferencedFrameNumber;
++    const referencedImageId = this.getReferencedImageId({
++      sopInstanceUIDToImageIdMap,
++      ReferencedSOPInstanceUID,
++      ReferencedFrameNumber
++    });
++    if (!referencedImageId && (ReferencedFrameNumber === undefined || ReferencedFrameNumber === null)) {
++      throw new Error("Cannot hydrate ambiguous multiframe SR measurement because ReferencedFrameNumber is missing for SOPInstanceUID=".concat(ReferencedSOPInstanceUID));
++    }
+     const imagePlaneModule = metadata.get('imagePlaneModule', referencedImageId);
+     const annotationUID = DicomMetaDictionary.uid();
+     return {
+@@ -141,6 +147,18 @@ class MeasurementReport {
+       }
+     };
+   }
++  static getReferencedImageId(_ref2) {
++    let sopInstanceUIDToImageIdMap = _ref2.sopInstanceUIDToImageIdMap,
++      ReferencedSOPInstanceUID = _ref2.ReferencedSOPInstanceUID,
++      ReferencedFrameNumber = _ref2.ReferencedFrameNumber;
++    if (ReferencedFrameNumber !== undefined && ReferencedFrameNumber !== null) {
++      return sopInstanceUIDToImageIdMap["".concat(ReferencedSOPInstanceUID, ":").concat(ReferencedFrameNumber)];
++    }
++    const matchingKeys = Object.keys(sopInstanceUIDToImageIdMap || {}).filter(key => key.startsWith("".concat(ReferencedSOPInstanceUID, ":")));
++    if (matchingKeys.length === 1) {
++      return sopInstanceUIDToImageIdMap[matchingKeys[0]];
++    }
++  }
+   static processSCOORD3DGroup(_ref2) {
+     let SCOORD3DGroup = _ref2.SCOORD3DGroup,
+       toolType = _ref2.toolType;
+@@ -306,6 +324,39 @@ class MeasurementReport {
+       worldCoords
+     });
+   }
++  static getFrameNumberFromToolData(_ref5) {
++    let toolData = _ref5.toolData,
++      toolTypes = _ref5.toolTypes,
++      metadataProvider = _ref5.metadataProvider;
++    const types = toolTypes || [];
++    for (let i = 0; i < types.length; i++) {
++      const toolType = types[i];
++      const annotations = toolData && toolData[toolType] && toolData[toolType].data || [];
++      for (let j = 0; j < annotations.length; j++) {
++        const annotation = annotations[j];
++        const candidates = [];
++        if (annotation && annotation.data) {
++          candidates.push(annotation.data.frameNumber);
++        }
++        if (annotation && annotation.metadata) {
++          candidates.push(annotation.metadata.frameNumber);
++          candidates.push(annotation.metadata.referencedFrameNumber);
++          if (annotation.metadata.referencedImageId) {
++            candidates.push(metadataProvider.get('frameNumber', annotation.metadata.referencedImageId));
++          }
++        }
++        for (let k = 0; k < candidates.length; k++) {
++          const candidate = candidates[k];
++          if (candidate !== undefined && candidate !== null) {
++            const frameNumber = Number(candidate);
++            if (!Number.isNaN(frameNumber)) {
++              return frameNumber;
++            }
++          }
++        }
++      }
++    }
++  }
+   static generateReferencedSOPSequence(_ref5) {
+     let toolData = _ref5.toolData,
+       toolTypes = _ref5.toolTypes,
+@@ -327,14 +378,25 @@ class MeasurementReport {
+       const derivationSourceDataset = MeasurementReport.generateDerivationSourceDataset(instance);
+       derivationSourceDatasets.push(derivationSourceDataset);
+     }
+-    const frameNumber = metadataProvider.get('frameNumber', effectiveImageId);
++    let frameNumber = metadataProvider.get('frameNumber', effectiveImageId);
++    if (frameNumber === undefined || frameNumber === null) {
++      frameNumber = MeasurementReport.getFrameNumberFromToolData({
++        toolData,
++        toolTypes,
++        metadataProvider
++      });
++    }
++    const isMultiframe = Number(instance && instance.NumberOfFrames || 1) > 1 || Normalizer.isMultiframeSOPClassUID(sopClassUID);
+     const ReferencedSOPSequence = {
+       ReferencedSOPClassUID: sopClassUID,
+-      ReferencedSOPInstanceUID: sopInstanceUID,
+-      ReferencedFrameNumber: undefined
++      ReferencedSOPInstanceUID: sopInstanceUID
+     };
+-    if (instance && instance.NumberOfFrames && instance.NumberOfFrames > 1 || Normalizer.isMultiframeSOPClassUID(sopClassUID)) {
+-      ReferencedSOPSequence.ReferencedFrameNumber = frameNumber;
++    if (isMultiframe) {
++      const numericFrameNumber = Number(frameNumber);
++      if (frameNumber === undefined || frameNumber === null || Number.isNaN(numericFrameNumber) || numericFrameNumber < 1) {
++        throw new Error(['Cannot export DICOM SR for multiframe source image because frame number is missing or invalid.', "SOPInstanceUID=".concat(sopInstanceUID), "SOPClassUID=".concat(sopClassUID), "NumberOfFrames=".concat(instance && instance.NumberOfFrames), "effectiveImageId=".concat(effectiveImageId)].join(' '));
++      }
++      ReferencedSOPSequence.ReferencedFrameNumber = numericFrameNumber;
+     }
+     return ReferencedSOPSequence;
+   }

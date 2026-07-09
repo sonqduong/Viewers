@@ -306,7 +306,12 @@ function _checkIfCanAddMeasurementsToDisplaySet(
     }
 
     const { ReferencedSOPInstanceUID } = referencedSOPSequence;
-    const frame = referencedSOPSequence.ReferencedFrameNumber || 1;
+    const frame = _getFrameForSOPReference(referencedSOPSequence, newDisplaySet);
+
+    if (frame === undefined) {
+      continue;
+    }
+
     const key = `${ReferencedSOPInstanceUID}:${frame}`;
     const imageId = imageIdMap.get(key);
 
@@ -339,12 +344,16 @@ function _measurementReferencesSOPInstanceUID(measurement, SOPInstanceUID, frame
    * NOTE: The ReferencedFrameNumber can be multiple values according to the DICOM
    * Standard. But for now, we will support only one ReferenceFrameNumber.
    */
-  const ReferencedFrameNumber =
-    (measurement.coords[0].ReferencedSOPSequence &&
-      measurement.coords[0].ReferencedSOPSequence?.ReferencedFrameNumber) ||
-    1;
+  const ReferencedFrameNumber = _getSingleReferencedFrameNumber(
+    measurement.coords[0].ReferencedSOPSequence
+  );
 
-  if (frameNumber && Number(frameNumber) !== Number(ReferencedFrameNumber)) {
+  if (
+    frameNumber &&
+    ReferencedFrameNumber !== undefined &&
+    ReferencedFrameNumber !== null &&
+    Number(frameNumber) !== Number(ReferencedFrameNumber)
+  ) {
     return false;
   }
 
@@ -357,6 +366,37 @@ function _measurementReferencesSOPInstanceUID(measurement, SOPInstanceUID, frame
   }
 
   return false;
+}
+
+function _getSingleReferencedFrameNumber(referencedSOPSequence) {
+  const frameNumber = referencedSOPSequence?.ReferencedFrameNumber;
+
+  if (Array.isArray(frameNumber)) {
+    return frameNumber[0];
+  }
+
+  return frameNumber;
+}
+
+function _getFrameForSOPReference(referencedSOPSequence, displaySet) {
+  const frameNumber = _getSingleReferencedFrameNumber(referencedSOPSequence);
+
+  if (frameNumber !== undefined && frameNumber !== null) {
+    return frameNumber;
+  }
+
+  if (displaySet?.isMultiFrame) {
+    console.warn(
+      'Skipping SR measurement for multiframe image because ReferencedFrameNumber is missing.',
+      {
+        ReferencedSOPInstanceUID: referencedSOPSequence?.ReferencedSOPInstanceUID,
+        displaySetInstanceUID: displaySet.displaySetInstanceUID,
+      }
+    );
+    return;
+  }
+
+  return 1;
 }
 
 /**
